@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Newsletter Archive</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Welcome / Setup Screen (shown on first launch) -->
+  <div id="welcome-screen" class="welcome hidden">
+    <div class="welcome__title">Newsletter Archive</div>
+    <div class="welcome__subtitle">
+      Browse and search your email newsletter collection.
+      Select the folder containing your newsletters to get started.
+    </div>
+    <button id="welcome-pick-btn" class="welcome__btn">Choose Newsletters Folder</button>
+    <div id="welcome-progress" class="progress hidden">
+      <div class="progress__bar">
+        <div id="progress-fill" class="progress__fill"></div>
+      </div>
+      <div id="progress-text" class="progress__text">Preparing...</div>
+    </div>
+  </div>
+
+  <!-- Main Three-Panel Layout -->
+  <div id="app-layout" class="app-layout hidden">
+
+    <!-- Sidebar (Left) -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar__header">
+        <div class="sidebar__title">Newsletter Archive</div>
+        <input type="text" class="sidebar__search" id="sidebar-search"
+               placeholder="Filter labels..." autocomplete="off" spellcheck="false">
+      </div>
+
+      <div class="sidebar__special">
+        <div class="sidebar__item" data-action="show-all" id="nav-all">
+          <span class="sidebar__item-name">All Emails</span>
+          <span class="sidebar__item-count" id="total-count"></span>
+        </div>
+        <div class="sidebar__item" data-action="show-bookmarks" id="nav-bookmarks">
+          <span class="sidebar__item-name">Bookmarks</span>
+          <span class="sidebar__item-count" id="bookmarks-count"></span>
+        </div>
+      </div>
+
+      <nav class="sidebar__nav" id="label-list">
+        <div class="sidebar__section-title">Labels</div>
+        <!-- Label items rendered dynamically -->
+      </nav>
+
+      <div class="sidebar__footer">
+        <button class="sidebar__footer-btn" id="settings-btn" title="Settings">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+          <span>Settings</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Email List (Middle) -->
+    <section class="email-list-panel" id="email-list-panel">
+      <div class="email-list__header">
+        <span class="email-list__title" id="list-title">All Emails</span>
+        <span class="email-list__count" id="list-count"></span>
+      </div>
+      <div class="email-list__toolbar">
+        <button class="toolbar-btn" data-sort="date_desc" id="sort-newest">Newest</button>
+        <button class="toolbar-btn" data-sort="date_asc" id="sort-oldest">Oldest</button>
+        <button class="toolbar-btn" data-sort="subject" id="sort-subject">A-Z</button>
+        <div style="flex:1"></div>
+        <button class="toolbar-btn" data-filter="unread" id="filter-unread">Unread</button>
+        <button class="toolbar-btn" data-filter="bookmarked" id="filter-bookmarked">Starred</button>
+      </div>
+      <div class="email-list__scroll" id="email-list-scroll">
+        <!-- Virtual scroll renders items here -->
+      </div>
+    </section>
+
+    <!-- Email Viewer (Right) -->
+    <section class="email-viewer" id="email-viewer">
+      <div class="viewer__empty" id="viewer-empty">
+        <div class="viewer__empty-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.3">
+            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+            <polyline points="22,6 12,13 2,6"/>
+          </svg>
+        </div>
+        <div class="viewer__empty-text">Select an email to read</div>
+        <div class="viewer__empty-hint">
+          Press <kbd>&#8984;K</kbd> to search &middot; <kbd>j</kbd>/<kbd>k</kbd> to navigate
+        </div>
+      </div>
+
+      <div id="viewer-content" class="hidden" style="display:flex; flex-direction:column; height:100%;">
+        <div class="viewer__header">
+          <div class="viewer__nav-btns">
+            <button class="viewer__nav-btn" id="viewer-prev" title="Previous email" disabled>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <button class="viewer__nav-btn" id="viewer-next" title="Next email" disabled>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
+          <div class="viewer__meta">
+            <div class="viewer__subject" id="viewer-subject"></div>
+            <div class="viewer__info">
+              <span class="viewer__date" id="viewer-date"></span>
+              <span class="viewer__from" id="viewer-from"></span>
+            </div>
+          </div>
+          <div class="viewer__actions">
+            <button class="viewer__action-btn" id="viewer-read-btn" title="Toggle read">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+            <button class="viewer__action-btn" id="viewer-bookmark-btn" title="Toggle bookmark">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 2.5h9v12L8 11l-4.5 3.5v-12z"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="viewer__frame-wrap">
+          <iframe class="viewer__frame" id="viewer-frame" sandbox="allow-same-origin allow-popups"></iframe>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Search Modal (Cmd+K) -->
+  <div class="search-overlay" id="search-overlay">
+    <div class="search-modal">
+      <div class="search-modal__input-wrap">
+        <svg class="search-modal__icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" class="search-modal__input" id="search-input"
+               placeholder="Search emails..." autocomplete="off" spellcheck="false">
+        <span class="search-modal__hint"><kbd>esc</kbd></span>
+      </div>
+      <div class="search-modal__results" id="search-results">
+        <div class="search-modal__empty">Type to search across all emails</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts (no bundler, direct ES module-like loading) -->
+  <script src="lib/virtual-scroll.js"></script>
+  <script src="lib/tauri-bridge.js"></script>
+  <script src="components/sidebar.js"></script>
+  <script src="components/email-list.js"></script>
+  <script src="components/email-viewer.js"></script>
+  <script src="components/search-modal.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

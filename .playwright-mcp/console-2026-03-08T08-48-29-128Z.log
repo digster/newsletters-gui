@@ -1,0 +1,5 @@
+[      53ms] [ERROR] Init error: TypeError: Cannot read properties of undefined (reading 'core')
+    at invoke (http://localhost:1420/lib/tauri-bridge.js:7:29)
+    at Object.getNewslettersPath (http://localhost:1420/lib/tauri-bridge.js:17:31)
+    at Object.init (http://localhost:1420/app.js:20:33)
+    at HTMLDocument.<anonymous> (http://localhost:1420/app.js:215:7) @ http://localhost:1420/app.js:27
