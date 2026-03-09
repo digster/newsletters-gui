@@ -188,7 +188,7 @@ pub async fn scan_and_index(
             DROP TABLE IF EXISTS emails_fts;
             DELETE FROM emails;
             CREATE VIRTUAL TABLE emails_fts USING fts5(
-                subject, body, label,
+                subject, body, from_addr, label,
                 content='emails', content_rowid='rowid',
                 tokenize='porter unicode61'
             );
@@ -208,16 +208,17 @@ pub async fn scan_and_index(
                     .unwrap_or((false, false));
 
                 conn.execute(
-                    "INSERT OR REPLACE INTO emails (id, label, subject, from_addr, date, html_filename, md_filename, is_read, is_bookmarked)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    "INSERT OR REPLACE INTO emails (id, label, subject, from_addr, body, date, html_filename, md_filename, is_read, is_bookmarked)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                     params![
-                        email.id, email.label, email.subject, email.from_addr, email.date,
+                        email.id, email.label, email.subject, email.from_addr,
+                        email.body_text, email.date,
                         email.html_filename, email.md_filename,
                         is_read as i32, is_bookmarked as i32,
                     ],
                 ).map_err(|e| format!("Insert error: {}", e))?;
 
-                // Insert into FTS5 index
+                // Insert into FTS5 index (includes from_addr for sender search)
                 let rowid: i64 = conn.query_row(
                     "SELECT rowid FROM emails WHERE id = ?1",
                     params![email.id],
@@ -225,8 +226,8 @@ pub async fn scan_and_index(
                 ).map_err(|e| format!("Rowid lookup error: {}", e))?;
 
                 conn.execute(
-                    "INSERT INTO emails_fts (rowid, subject, body, label) VALUES (?1, ?2, ?3, ?4)",
-                    params![rowid, email.subject, email.body_text, email.label],
+                    "INSERT INTO emails_fts (rowid, subject, body, from_addr, label) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![rowid, email.subject, email.body_text, email.from_addr, email.label],
                 ).map_err(|e| format!("FTS insert error: {}", e))?;
 
                 indexed += 1;

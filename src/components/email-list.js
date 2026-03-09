@@ -14,6 +14,12 @@ const EmailList = (() => {
   let _totalCount = 0;
   const PAGE_SIZE = 200;
 
+  // Search mode state
+  let _isSearchMode = false;
+  let _searchResults = [];
+  let _savedView = null;
+  let _searchDebounceTimer = null;
+
   const ICON = {
     bookmarkSmall: '<svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor" stroke="currentColor" stroke-width="1.5"><path d="M3.5 2.5h9v12L8 11l-4.5 3.5v-12z"/></svg>',
     dot: '<svg width="6" height="6" viewBox="0 0 6 6"><circle cx="3" cy="3" r="3" fill="var(--accent)"/></svg>',
@@ -112,9 +118,12 @@ const EmailList = (() => {
 
     container.innerHTML = '';
 
+    // Search mode uses taller rows to display snippet + label badge
+    const rowHeight = _isSearchMode ? 72 : 52;
+
     _virtualScroll = new VirtualScroll({
       container,
-      itemHeight: 52,
+      itemHeight: rowHeight,
       totalItems: _emails.length,
       bufferSize: 15,
       renderItem: (index) => _createRow(index),
@@ -145,14 +154,28 @@ const EmailList = (() => {
       icons += `<span class="email-row__icon email-row__icon--active">${ICON.dot}</span>`;
     }
 
-    row.innerHTML = `
-      <div class="email-row__subject">${_escapeHtml(email.subject || '(no subject)')}</div>
-      <div class="email-row__meta">
-        <span class="email-row__date">${dateStr}</span>
-        <span class="email-row__from">${_escapeHtml(_extractSender(email.from_addr))}</span>
-        <span class="email-row__icons">${icons}</span>
-      </div>
-    `;
+    // In search mode, show snippet + label badge; otherwise normal row
+    if (_isSearchMode && email._snippet) {
+      row.innerHTML = `
+        <div class="email-row__subject">${_escapeHtml(email.subject || '(no subject)')}</div>
+        <div class="email-row__meta">
+          <span class="email-row__label-badge">${_escapeHtml(email.label)}</span>
+          <span class="email-row__from">${_escapeHtml(_extractSender(email.from_addr))}</span>
+          <span class="email-row__date">${dateStr}</span>
+          <span class="email-row__icons">${icons}</span>
+        </div>
+        <div class="email-row__snippet">${email._snippet}</div>
+      `;
+    } else {
+      row.innerHTML = `
+        <div class="email-row__subject">${_escapeHtml(email.subject || '(no subject)')}</div>
+        <div class="email-row__meta">
+          <span class="email-row__date">${dateStr}</span>
+          <span class="email-row__from">${_escapeHtml(_extractSender(email.from_addr))}</span>
+          <span class="email-row__icons">${icons}</span>
+        </div>
+      `;
+    }
 
     row.addEventListener('click', () => _selectEmail(index));
     return row;
@@ -298,5 +321,82 @@ const EmailList = (() => {
     return el.innerHTML;
   }
 
-  return { init, loadView, selectByOffset, getActiveId, updateEmailState };
+  /** Enter search mode — save current view, show search results */
+  function enterSearchMode(query) {
+    clearTimeout(_searchDebounceTimer);
+
+    if (!query || !query.trim()) {
+      // Empty query: exit search mode and restore previous view
+      if (_isSearchMode) exitSearchMode();
+      return;
+    }
+
+    _searchDebounceTimer = setTimeout(async () => {
+      try {
+        // Save current view on first search entry
+        if (!_isSearchMode) {
+          _savedView = { view: _currentView, label: _currentLabel };
+        }
+
+        _isSearchMode = true;
+        _searchResults = await Bridge.searchEmails(query, 50);
+
+        // Hide toolbar (sort/filter don't apply to FTS-ranked results)
+        const toolbar = document.getElementById('email-list-toolbar');
+        if (toolbar) toolbar.classList.add('hidden');
+
+        // Update header
+        const titleEl = document.getElementById('list-title');
+        const countEl = document.getElementById('list-count');
+        if (titleEl) titleEl.textContent = 'Search Results';
+        if (countEl) countEl.textContent = `${_searchResults.length}`;
+
+        // Map search results to email-like objects for the list renderer
+        _emails = _searchResults.map(r => ({
+          id: r.id,
+          label: r.label,
+          subject: r.subject,
+          from_addr: r.from_addr,
+          date: r.date,
+          is_read: r.is_read,
+          is_bookmarked: r.is_bookmarked,
+          _snippet: r.snippet, // raw HTML snippet from FTS5 (already has <mark> tags)
+        }));
+
+        _activeEmailId = null;
+        _activeIndex = -1;
+        _renderList();
+      } catch (err) {
+        console.error('Search error:', err);
+      }
+    }, 150); // 150ms debounce for responsive search
+  }
+
+  /** Exit search mode — restore the previously active view */
+  function exitSearchMode() {
+    if (!_isSearchMode) return;
+
+    clearTimeout(_searchDebounceTimer);
+    _isSearchMode = false;
+    _searchResults = [];
+    _activeEmailId = null;
+    _activeIndex = -1;
+
+    // Show toolbar again
+    const toolbar = document.getElementById('email-list-toolbar');
+    if (toolbar) toolbar.classList.remove('hidden');
+
+    // Restore the saved view
+    if (_savedView) {
+      loadView(_savedView.view, _savedView.label);
+      _savedView = null;
+    }
+  }
+
+  /** Check if currently in search mode */
+  function isSearchMode() {
+    return _isSearchMode;
+  }
+
+  return { init, loadView, selectByOffset, getActiveId, updateEmailState, enterSearchMode, exitSearchMode, isSearchMode };
 })();

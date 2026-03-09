@@ -13,7 +13,6 @@ const App = (() => {
     // Initialize components
     EmailList.init();
     EmailViewer.init();
-    SearchModal.init();
 
     // Check if newsletters path is configured
     try {
@@ -138,9 +137,62 @@ const App = (() => {
 
   /** Bind global navigation event handlers */
   function _bindNavigation() {
-    // Sidebar navigation changes
+    // --- Inline search bar wiring ---
+    const searchInput = document.getElementById('email-search-input');
+    const searchClear = document.getElementById('email-search-clear');
+
+    // Debounced search on input
+    searchInput.addEventListener('input', (e) => {
+      const query = e.target.value;
+      searchClear.classList.toggle('hidden', !query);
+      EmailList.enterSearchMode(query);
+    });
+
+    // Escape key on search input clears and exits search mode
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        searchInput.value = '';
+        searchClear.classList.add('hidden');
+        EmailList.exitSearchMode();
+        searchInput.blur();
+      }
+    });
+
+    // Clear button
+    searchClear.addEventListener('click', () => {
+      searchInput.value = '';
+      searchClear.classList.add('hidden');
+      EmailList.exitSearchMode();
+      searchInput.focus();
+    });
+
+    // Cmd+K / Ctrl+K focuses the inline search input
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+      }
+      // "/" opens search (if not already in an input)
+      if (e.key === '/' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select();
+      }
+    });
+
+    // Sidebar navigation changes — clear search when switching views
     document.addEventListener('nav:change', async (e) => {
       const { view, label } = e.detail;
+
+      // Clear search state on sidebar navigation
+      if (EmailList.isSearchMode()) {
+        searchInput.value = '';
+        searchClear.classList.add('hidden');
+        EmailList.exitSearchMode();
+      }
+
       EmailViewer.showEmpty();
 
       if (view === 'all') {
@@ -152,29 +204,6 @@ const App = (() => {
       }
     });
 
-    // Search result navigation
-    document.addEventListener('search:navigate', async (e) => {
-      const { emailId, label } = e.detail;
-
-      // Select the label in sidebar
-      Sidebar.setActive(label);
-
-      // Load that label's emails
-      await EmailList.loadView('label', label);
-
-      // Find and select the specific email (small delay for list to render)
-      setTimeout(async () => {
-        try {
-          const email = await Bridge.getEmail(emailId);
-          if (email) {
-            EmailViewer.showEmail(email, { hasPrev: false, hasNext: false });
-          }
-        } catch (err) {
-          console.error('Failed to navigate to search result:', err);
-        }
-      }, 100);
-    });
-
     // Settings (re-index / change folder)
     document.addEventListener('app:settings', async () => {
       try {
@@ -183,7 +212,7 @@ const App = (() => {
 
         await Bridge.setNewslettersPath(selectedPath);
 
-        // Re-index with progress (shown in a simple way for now)
+        // Re-index with progress
         const unlisten = await Bridge.onIndexProgress((progress) => {
           const title = document.getElementById('list-title');
           if (title && progress.phase === 'indexing') {

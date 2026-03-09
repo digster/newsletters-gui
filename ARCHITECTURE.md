@@ -91,6 +91,7 @@ CREATE TABLE emails (
     label TEXT NOT NULL,
     subject TEXT NOT NULL DEFAULT '',
     from_addr TEXT NOT NULL DEFAULT '',
+    body TEXT NOT NULL DEFAULT '',  -- Truncated plaintext body (≤2000 chars) for FTS
     date TEXT,
     html_filename TEXT NOT NULL,
     md_filename TEXT,
@@ -99,7 +100,7 @@ CREATE TABLE emails (
 );
 
 CREATE VIRTUAL TABLE emails_fts USING fts5(
-    subject, body, label,
+    subject, body, from_addr, label,
     content='emails', content_rowid='rowid',
     tokenize='porter unicode61'
 );

@@ -39,6 +39,7 @@ impl Database {
                 label TEXT NOT NULL,
                 subject TEXT NOT NULL DEFAULT '',
                 from_addr TEXT NOT NULL DEFAULT '',
+                body TEXT NOT NULL DEFAULT '',
                 date TEXT,
                 html_filename TEXT NOT NULL,
                 md_filename TEXT,
@@ -58,6 +59,18 @@ impl Database {
             );
         ").map_err(|e| format!("Failed to create tables: {}", e))?;
 
+        // Migration: add body column to existing databases that lack it
+        let has_body: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('emails') WHERE name='body'",
+            [],
+            |row| row.get(0),
+        ).unwrap_or(false);
+        if !has_body {
+            conn.execute("ALTER TABLE emails ADD COLUMN body TEXT NOT NULL DEFAULT ''", [])
+                .map_err(|e| format!("Failed to add body column: {}", e))?;
+            info!("Migrated emails table: added body column");
+        }
+
         // Create FTS5 virtual table if it doesn't exist
         // We check first because CREATE VIRTUAL TABLE IF NOT EXISTS isn't always reliable
         let has_fts: bool = conn.query_row(
@@ -69,7 +82,7 @@ impl Database {
         if !has_fts {
             conn.execute_batch("
                 CREATE VIRTUAL TABLE emails_fts USING fts5(
-                    subject, body, label,
+                    subject, body, from_addr, label,
                     content='emails', content_rowid='rowid',
                     tokenize='porter unicode61'
                 );

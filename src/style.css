@@ -330,6 +330,94 @@ a:hover {
   flex-shrink: 0;
 }
 
+/* Inline search bar */
+.email-list__search-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  border-bottom: 0.5px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg);
+}
+
+.email-list__search-icon {
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+
+.email-list__search-input {
+  flex: 1;
+  padding: 5px 0;
+  border: none;
+  background: none;
+  color: var(--fg);
+  font-size: 12.5px;
+  font-family: var(--font);
+  outline: none;
+  min-width: 0;
+}
+
+.email-list__search-input::placeholder {
+  color: var(--fg-muted);
+}
+
+.email-list__search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 120ms var(--ease);
+}
+
+.email-list__search-clear:hover {
+  background: var(--bg-hover);
+  color: var(--fg-secondary);
+}
+
+/* Search result snippet row (taller rows with snippet preview) */
+.email-row__snippet {
+  font-size: 11.5px;
+  color: var(--fg-muted);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 1px;
+}
+
+.email-row__snippet mark {
+  background: var(--accent-subtle);
+  color: var(--accent);
+  border-radius: 2px;
+  padding: 0 1px;
+  font-weight: 500;
+}
+
+/* Label badge in search results */
+.email-row__label-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  background: var(--bg-active);
+  padding: 0 5px;
+  border-radius: var(--radius-sm);
+  line-height: 1.6;
+  white-space: nowrap;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Toolbar (sort, filter) */
 .email-list__toolbar {
   padding: var(--sp-2) var(--sp-4);
