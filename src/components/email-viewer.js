@@ -59,12 +59,12 @@ const EmailViewer = (() => {
       }
     }
 
-    // Load HTML content for iframe
+    // Load HTML content for iframe with theme-aware styles
     try {
       const html = await Bridge.getEmailHtml(email.id);
       const iframe = document.getElementById('viewer-frame');
       if (iframe) {
-        iframe.srcdoc = html;
+        iframe.srcdoc = _themedSrcdoc(html);
       }
     } catch (err) {
       console.error('Failed to load email HTML:', err);
@@ -149,6 +149,13 @@ const EmailViewer = (() => {
       const { email, hasPrev, hasNext } = e.detail;
       showEmail(email, { hasPrev, hasNext });
     });
+
+    // Re-render iframe when theme changes so background matches
+    document.addEventListener('theme:change', () => {
+      if (_currentEmail) {
+        showEmail(_currentEmail, { hasPrev: _hasPrev, hasNext: _hasNext });
+      }
+    });
   }
 
   function _formatDate(dateStr) {
@@ -162,6 +169,23 @@ const EmailViewer = (() => {
     } catch {
       return dateStr;
     }
+  }
+
+  /**
+   * Wrap email HTML with a theme-aware <style> tag so the iframe
+   * background and color-scheme match the active app theme.
+   */
+  function _themedSrcdoc(html) {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const themeStyle = `<style data-theme-inject>
+      html { color-scheme: ${isDark ? 'dark' : 'light'}; }
+      body { background: ${isDark ? '#1a1a1a' : '#fff'}; }
+    </style>`;
+    // Inject before </head> if present, otherwise prepend
+    if (html.includes('</head>')) {
+      return html.replace('</head>', themeStyle + '</head>');
+    }
+    return themeStyle + html;
   }
 
   function _escapeHtml(str) {

@@ -54,26 +54,24 @@
   --list-width: 360px;
 }
 
-/* Dark mode */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0f1117;
-    --bg-surface: #181a20;
-    --bg-hover: #1e2028;
-    --bg-active: #252730;
+/* Dark mode — applied via data-theme attribute (managed by theme.js) */
+html[data-theme="dark"] {
+  --bg: #0f1117;
+  --bg-surface: #181a20;
+  --bg-hover: #1e2028;
+  --bg-active: #252730;
 
-    --fg: #e4e7eb;
-    --fg-secondary: #9ba3b0;
-    --fg-muted: #6b7280;
-    --fg-faint: #3b4048;
+  --fg: #e4e7eb;
+  --fg-secondary: #9ba3b0;
+  --fg-muted: #6b7280;
+  --fg-faint: #3b4048;
 
-    --border: rgba(255, 255, 255, 0.08);
-    --border-strong: rgba(255, 255, 255, 0.14);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
 
-    --accent: #4d8af0;
-    --accent-hover: #6da0f5;
-    --accent-subtle: rgba(77, 138, 240, 0.1);
-  }
+  --accent: #4d8af0;
+  --accent-hover: #6da0f5;
+  --accent-subtle: rgba(77, 138, 240, 0.1);
 }
 
 /* ============================================================
@@ -771,10 +769,8 @@ body.is-resizing iframe {
   background: #fff;
 }
 
-@media (prefers-color-scheme: dark) {
-  .viewer__frame {
-    background: #1a1a1a;
-  }
+html[data-theme="dark"] .viewer__frame {
+  background: #1a1a1a;
 }
 
 /* Viewer empty state */

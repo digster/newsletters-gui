@@ -19,3 +19,7 @@ Add a dedicated "Reindex" button next to the existing "Settings" button in the s
 ## 2026-03-08: Resizable & Collapsible Vertical Panes
 
 Implement draggable splitter bars between the three-panel layout (sidebar, email-list, email-viewer) with collapse/expand support. Splitters use Pointer Events with setPointerCapture for smooth drag even outside the window. Chevron buttons toggle collapse with CSS transitions. Keyboard shortcuts: Cmd+B (sidebar), Cmd+Shift+B (email list). Double-click resets to default width. Layout persisted to localStorage.
+
+## 2026-03-09: Dark Mode Toggle
+
+Add a manual theme toggle that cycles through System → Light → Dark. Convert CSS from `@media (prefers-color-scheme: dark)` to `html[data-theme="dark"]` selectors so JavaScript can override. Theme toggle button in sidebar footer with monitor/sun/moon icons. FOUC-prevention script in `<head>`. Theme-aware iframe rendering for email viewer. Preference persisted in localStorage.
