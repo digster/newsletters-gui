@@ -11,3 +11,7 @@ Create an app icon for the Newsletter Archive Tauri v2 desktop app. Use the imag
 ## 2026-03-08: Fix Broken Search + Add Universal Search Box
 
 Fix Cmd+K search that returns no results due to FTS5/emails schema mismatch (missing `body` column). Add inline search bar to email-list panel replacing the search modal. Add `from_addr` to FTS5 for sender search. Add integration tests for the search pipeline.
+
+## 2026-03-08: Resizable & Collapsible Vertical Panes
+
+Implement draggable splitter bars between the three-panel layout (sidebar, email-list, email-viewer) with collapse/expand support. Splitters use Pointer Events with setPointerCapture for smooth drag even outside the window. Chevron buttons toggle collapse with CSS transitions. Keyboard shortcuts: Cmd+B (sidebar), Cmd+Shift+B (email list). Double-click resets to default width. Layout persisted to localStorage.

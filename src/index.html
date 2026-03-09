@@ -60,6 +60,13 @@
       </div>
     </aside>
 
+    <!-- Splitter: Sidebar ↔ Email List -->
+    <div class="splitter" id="splitter-sidebar">
+      <button class="splitter__collapse-btn" id="collapse-sidebar-btn" title="Toggle sidebar (⌘B)">
+        <svg width="8" height="12" viewBox="0 0 8 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 1 1 6 6 11"/></svg>
+      </button>
+    </div>
+
     <!-- Email List (Middle) -->
     <section class="email-list-panel" id="email-list-panel">
       <div class="email-list__header">
@@ -86,6 +93,13 @@
         <!-- Virtual scroll renders items here -->
       </div>
     </section>
+
+    <!-- Splitter: Email List ↔ Email Viewer -->
+    <div class="splitter" id="splitter-list">
+      <button class="splitter__collapse-btn" id="collapse-list-btn" title="Toggle email list (⌘⇧B)">
+        <svg width="8" height="12" viewBox="0 0 8 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 1 1 6 6 11"/></svg>
+      </button>
+    </div>
 
     <!-- Email Viewer (Right) -->
     <section class="email-viewer" id="email-viewer">
@@ -152,6 +166,7 @@
 
   <!-- Scripts (no bundler, direct ES module-like loading) -->
   <script src="lib/virtual-scroll.js"></script>
+  <script src="lib/splitter.js"></script>
   <script src="lib/tauri-bridge.js"></script>
   <script src="components/sidebar.js"></script>
   <script src="components/email-list.js"></script>

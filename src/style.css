@@ -125,15 +125,100 @@ a:hover {
 }
 
 /* ============================================================
+   Pane Splitters — resizable & collapsible vertical dividers
+   ============================================================ */
+
+.splitter {
+  position: relative;
+  width: 4px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background: var(--border);
+  z-index: 10;
+  transition: background 150ms var(--ease);
+}
+
+/* Wider invisible grab area for easier targeting */
+.splitter::before {
+  content: '';
+  position: absolute;
+  inset: 0 -4px;
+  z-index: 1;
+}
+
+.splitter:hover {
+  background: var(--accent);
+}
+
+/* Collapse / expand button centered on splitter */
+.splitter__collapse-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 16px;
+  height: 32px;
+  padding: 0;
+  border: 0.5px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--fg-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 150ms var(--ease), background 150ms var(--ease);
+  z-index: 2;
+}
+
+.splitter:hover .splitter__collapse-btn,
+.splitter--collapsed .splitter__collapse-btn {
+  opacity: 1;
+}
+
+.splitter__collapse-btn:hover {
+  background: var(--bg-hover);
+  color: var(--fg-secondary);
+}
+
+.splitter__collapse-btn svg {
+  transition: transform 200ms var(--ease);
+}
+
+/* Pane collapsed state */
+.pane--collapsed {
+  width: 0 !important;
+  overflow: hidden !important;
+}
+
+/* Smooth collapse / expand animation */
+.pane--animating {
+  transition: width 200ms var(--ease);
+}
+
+/* During drag: global col-resize cursor and prevent iframe stealing events */
+body.is-resizing {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+body.is-resizing * {
+  cursor: col-resize !important;
+}
+
+body.is-resizing iframe {
+  pointer-events: none;
+}
+
+/* ============================================================
    Sidebar (Left Panel)
    ============================================================ */
 
 .sidebar {
-  width: var(--sidebar-width);
-  min-width: var(--sidebar-width);
+  flex-shrink: 0;
   height: 100vh;
   background: var(--bg-surface);
-  border-right: 0.5px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -291,10 +376,8 @@ a:hover {
    ============================================================ */
 
 .email-list-panel {
-  width: var(--list-width);
-  min-width: var(--list-width);
+  flex-shrink: 0;
   height: 100vh;
-  border-right: 0.5px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow: hidden;

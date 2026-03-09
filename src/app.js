@@ -130,6 +130,9 @@ const App = (() => {
       await Sidebar.updateBookmarksCount();
     }
 
+    // Initialize resizable pane splitters
+    PaneSplitter.init();
+
     // Load "All Emails" view by default
     Sidebar.setActive('all');
     await EmailList.loadView('all');
@@ -202,6 +205,12 @@ const App = (() => {
       } else if (view === 'label') {
         await EmailList.loadView('label', label);
       }
+    });
+
+    // Pane resize → trigger virtual scroll recalculation
+    document.addEventListener('pane:resize', () => {
+      const scrollContainer = document.getElementById('email-list-scroll');
+      if (scrollContainer) scrollContainer.dispatchEvent(new Event('scroll'));
     });
 
     // Settings (re-index / change folder)

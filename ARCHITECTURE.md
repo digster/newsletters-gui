@@ -5,13 +5,16 @@
 Newsletter Archive is a **Tauri v2** desktop app with a Rust backend and vanilla JS frontend. No build tools or bundlers — the frontend is served directly as static files.
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│  Tauri Window (1280×800)                                 │
-│ ┌──────────┬────────────────┬───────────────────────────┐│
-│ │ Sidebar  │  Email List    │  Email Viewer (iframe)    ││
-│ │ (240px)  │  (360px)       │  (flex fill)              ││
-│ └──────────┴────────────────┴───────────────────────────┘│
-└──────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│  Tauri Window (1280×800)                                          │
+│ ┌──────────┬─┬────────────────┬─┬───────────────────────────────┐│
+│ │ Sidebar  │║│  Email List    │║│  Email Viewer (iframe)        ││
+│ │ (resizable│║│ (resizable)    │║│  (flex fill)                  ││
+│ │ 160-400px)│║│ (240-600px)    │║│                               ││
+│ └──────────┴─┴────────────────┴─┴───────────────────────────────┘│
+│              ↑                 ↑                                  │
+│         splitter bars (draggable, collapsible via chevron btns)   │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ## Data Flow
@@ -60,6 +63,7 @@ newsletters-gui/
 │   │   └── search-modal.js    # Cmd+K command palette
 │   └── lib/
 │       ├── virtual-scroll.js  # DOM-recycling scroll engine
+│       ├── splitter.js        # Resizable/collapsible pane splitters
 │       └── tauri-bridge.js    # Thin invoke() wrapper
 └── package.json               # Only @tauri-apps/cli + serve
 ```
@@ -130,3 +134,4 @@ Components communicate via custom DOM events:
 - `email:select` — email list click → triggers viewer display
 - `search:navigate` — search result click → navigates to label + email
 - `app:settings` — settings button → triggers folder picker
+- `pane:resize` — splitter drag/collapse → triggers virtual scroll recalculation
