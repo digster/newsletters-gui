@@ -126,6 +126,11 @@ const Sidebar = (() => {
       });
     }
 
+    // Reindex button — re-indexes current folder without folder picker
+    document.getElementById('reindex-btn')?.addEventListener('click', () => {
+      document.dispatchEvent(new CustomEvent('app:reindex'));
+    });
+
     // Settings button
     document.getElementById('settings-btn')?.addEventListener('click', () => {
       document.dispatchEvent(new CustomEvent('app:settings'));

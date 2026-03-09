@@ -49,5 +49,10 @@ const Bridge = (() => {
       });
       return result; // string path or null
     },
+
+    // Confirmation dialog — returns true if user clicks Yes
+    confirmDialog: (message, title = 'Confirm') => {
+      return window.__TAURI__.dialog.ask(message, { title });
+    },
   };
 })();

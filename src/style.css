@@ -344,6 +344,8 @@ body.is-resizing iframe {
 
 /* Sidebar footer */
 .sidebar__footer {
+  display: flex;
+  gap: var(--sp-2);
   padding: var(--sp-3) var(--sp-4);
   border-top: 0.5px solid var(--border);
   flex-shrink: 0;
@@ -352,8 +354,9 @@ body.is-resizing iframe {
 .sidebar__footer-btn {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: var(--sp-2);
-  width: 100%;
+  flex: 1;
   padding: 6px var(--sp-3);
   border: 0.5px solid var(--border);
   border-radius: var(--radius);

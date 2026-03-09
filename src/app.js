@@ -213,6 +213,48 @@ const App = (() => {
       if (scrollContainer) scrollContainer.dispatchEvent(new Event('scroll'));
     });
 
+    // Reindex — re-scans the already-configured newsletters folder
+    document.addEventListener('app:reindex', async () => {
+      try {
+        const path = await Bridge.getNewslettersPath();
+        if (!path) {
+          // No path configured yet — fall back to settings flow
+          document.dispatchEvent(new CustomEvent('app:settings'));
+          return;
+        }
+
+        const confirmed = await Bridge.confirmDialog(
+          `Reindex all newsletters from:\n${path}`,
+          'Reindex Newsletters'
+        );
+        if (!confirmed) return;
+
+        const title = document.getElementById('list-title');
+        if (title) title.textContent = 'Reindexing...';
+
+        const unlisten = await Bridge.onIndexProgress((progress) => {
+          if (title && progress.phase === 'indexing') {
+            title.textContent = `Indexing: ${progress.current}/${progress.total}`;
+          }
+        });
+
+        await Bridge.scanAndIndex();
+        if (unlisten) unlisten();
+
+        // Reload the UI
+        await Sidebar.loadLabels();
+        await Sidebar.updateBookmarksCount();
+        await EmailList.loadView('all');
+        Sidebar.setActive('all');
+
+        if (title) title.textContent = 'All Emails';
+      } catch (err) {
+        console.error('Reindex error:', err);
+        const title = document.getElementById('list-title');
+        if (title) title.textContent = 'All Emails';
+      }
+    });
+
     // Settings (re-index / change folder)
     document.addEventListener('app:settings', async () => {
       try {
