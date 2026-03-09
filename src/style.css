@@ -343,19 +343,21 @@ body.is-resizing iframe {
 /* Sidebar footer */
 .sidebar__footer {
   display: flex;
-  gap: var(--sp-2);
+  justify-content: center;
+  gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
   border-top: 0.5px solid var(--border);
   flex-shrink: 0;
 }
 
 .sidebar__footer-btn {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--sp-2);
-  flex: 1;
-  padding: 6px var(--sp-3);
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border: 0.5px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
@@ -370,6 +372,60 @@ body.is-resizing iframe {
   background: var(--bg-hover);
   color: var(--fg-secondary);
   border-color: var(--border-strong);
+}
+
+/* Visually hide button text labels (keep accessible for screen readers) */
+.sidebar__footer-btn > span:last-of-type {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Tooltip bubble */
+.sidebar__footer-btn::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  padding: 4px 10px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  border-radius: var(--radius);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms var(--ease), transform 150ms var(--ease);
+}
+
+/* Tooltip arrow */
+.sidebar__footer-btn::after {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  border: 4px solid transparent;
+  border-top-color: var(--fg);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms var(--ease), transform 150ms var(--ease);
+}
+
+/* Show tooltip on hover */
+.sidebar__footer-btn:hover::before,
+.sidebar__footer-btn:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
 }
 
 /* ============================================================

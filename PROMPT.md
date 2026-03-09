@@ -23,3 +23,7 @@ Implement draggable splitter bars between the three-panel layout (sidebar, email
 ## 2026-03-09: Dark Mode Toggle
 
 Add a manual theme toggle that cycles through System → Light → Dark. Convert CSS from `@media (prefers-color-scheme: dark)` to `html[data-theme="dark"]` selectors so JavaScript can override. Theme toggle button in sidebar footer with monitor/sun/moon icons. FOUC-prevention script in `<head>`. Theme-aware iframe rendering for email viewer. Preference persisted in localStorage.
+
+## 2026-03-09: Icon-Only Sidebar Footer Buttons with CSS Tooltips
+
+Make sidebar footer buttons (Reindex, Theme, Settings) icon-only with styled CSS tooltips on hover. Replace `title` attrs with `data-tooltip`, add `::before`/`::after` pseudo-element tooltips with fade+slide animation, visually hide text labels while keeping screen reader accessibility. Theme button dynamically syncs `data-tooltip` via JS.

@@ -96,7 +96,7 @@ const Theme = (() => {
     const btn = document.getElementById('theme-toggle-btn');
     if (iconEl) iconEl.innerHTML = ICONS[_preference];
     if (labelEl) labelEl.textContent = LABELS[_preference];
-    if (btn) btn.title = `Theme: ${LABELS[_preference]} (click to cycle)`;
+    if (btn) btn.dataset.tooltip = LABELS[_preference];
   }
 
   return { init, cycle, getResolved };
