@@ -193,7 +193,10 @@ const EmailList = (() => {
     document.querySelectorAll('.email-row--active').forEach(el => {
       el.classList.remove('email-row--active');
     });
-    const row = document.querySelector(`.email-row[data-email-id="${email.id}"]`);
+    // Email ids are composite keys ("<label>/<message_id>"), so they carry arbitrary
+    // label text — escape the quotes/backslashes an attribute selector would choke on.
+    const selectorId = String(email.id).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const row = document.querySelector(`.email-row[data-email-id="${selectorId}"]`);
     if (row) row.classList.add('email-row--active');
 
     // Dispatch event to open in viewer

@@ -27,3 +27,14 @@ Add a manual theme toggle that cycles through System → Light → Dark. Convert
 ## 2026-03-09: Icon-Only Sidebar Footer Buttons with CSS Tooltips
 
 Make sidebar footer buttons (Reindex, Theme, Settings) icon-only with styled CSS tooltips on hover. Replace `title` attrs with `data-tooltip`, add `::before`/`::after` pseudo-element tooltips with fade+slide animation, visually hide text labels while keeping screen reader accessibility. Theme button dynamically syncs `data-tooltip` via JS.
+
+## 2026-08-29: Fix Latent Data Corruption in the Email Index
+
+Fix a latent data-corruption bug where `emails.id` was the email folder name — an 8-char
+truncation of the Gmail message ID that collides and repeats across labels, so colliding
+pairs overwrote each other and read/bookmark state bled between unrelated newsletters.
+Make the primary key robust regardless of directory naming (compound label + full message
+ID), make `.html` selection deterministic and handle folders containing more than one
+`.html` instead of silently discarding, ensure the `existing_state` restore cannot bleed
+across labels, and add a regression test covering two folders that share a name under
+different labels. Verify the app still builds and scans correctly.

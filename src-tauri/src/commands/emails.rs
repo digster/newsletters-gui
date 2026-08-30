@@ -137,10 +137,13 @@ pub fn get_email_html(
 ) -> Result<String, String> {
     let conn = db.conn.lock().map_err(|e| e.to_string())?;
 
-    let (label, html_filename): (String, String) = conn.query_row(
-        "SELECT label, html_filename FROM emails WHERE id = ?1",
+    // The path components come from dedicated columns, never from the id itself: the id
+    // is a label-scoped composite key ("<label>/<message_id>"), which is deliberately
+    // decoupled from what the directory happens to be called on disk.
+    let (label, dir_name, html_filename): (String, String, String) = conn.query_row(
+        "SELECT label, dir_name, html_filename FROM emails WHERE id = ?1",
         params![email_id],
-        |row| Ok((row.get(0)?, row.get(1)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     ).map_err(|e| format!("Email not found: {}", e))?;
 
     let newsletters_path = {
@@ -152,7 +155,7 @@ pub fn get_email_html(
 
     let html_path = Path::new(&newsletters_path)
         .join(&label)
-        .join(&email_id)
+        .join(&dir_name)
         .join(&html_filename);
 
     fs::read_to_string(&html_path)

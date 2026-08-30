@@ -4,6 +4,14 @@ use serde::de::Deserializer;
 /// YAML frontmatter from .md files
 #[derive(Debug, Deserialize, Default)]
 pub struct Frontmatter {
+    /// Full Gmail message ID, emitted by gmail-ingestor as `id: "<message_id>"`.
+    ///
+    /// Deserialized leniently rather than as a plain `String`: a minority of historical
+    /// files carry the value unquoted, and all-digit IDs (e.g. 1637675546614607) then
+    /// parse as a YAML integer, which would fail a strict String field and silently
+    /// drop the ID for exactly those messages.
+    #[serde(default, deserialize_with = "deserialize_scalar_as_string")]
+    pub id: Option<String>,
     #[serde(default)]
     pub subject: String,
     #[serde(default, alias = "from")]
@@ -12,7 +20,7 @@ pub struct Frontmatter {
     pub to: String,
     /// Date field — serde_yaml parses bare "2021-05-11 16:34:38" as a timestamp,
     /// so we use a custom deserializer to always convert it to a String.
-    #[serde(default, deserialize_with = "deserialize_date_as_string")]
+    #[serde(default, deserialize_with = "deserialize_scalar_as_string")]
     pub date: Option<String>,
     #[serde(default)]
     pub labels: Vec<String>,
@@ -20,9 +28,9 @@ pub struct Frontmatter {
     pub label_ids: Vec<String>,
 }
 
-/// Custom deserializer that accepts any YAML value and converts it to a String.
-/// Handles: string "2021-05-11", timestamp 2021-05-11 16:34:38, null, etc.
-fn deserialize_date_as_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+/// Custom deserializer that accepts any YAML scalar and converts it to a String.
+/// Handles: string "2021-05-11", timestamp 2021-05-11 16:34:38, bare integers, null, etc.
+fn deserialize_scalar_as_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
 where
     D: Deserializer<'de>,
 {

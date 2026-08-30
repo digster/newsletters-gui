@@ -48,14 +48,20 @@ The app reads from a `newsletters/` folder with this structure:
 
 ```
 newsletters/
-  {label}/                     # 65 label folders
-    {8-hex-id}/                # Individual email folders
-      {16-hex-id}.html         # Full HTML email (displayed in iframe)
-      {slug}_{8-hex-id}.md     # Markdown with YAML frontmatter (indexed)
-      {16-hex-id}.txt          # Plain text (optional)
+  {label}/                     # 68 label folders
+    {message-id}/              # Individual email folders (full 16-hex Gmail message ID)
+      {message-id}.html        # Full HTML email (displayed in iframe)
+      {slug}_{message-id}.md   # Markdown with YAML frontmatter (indexed)
+      {message-id}.txt         # Plain text (optional)
 ```
 
-The `.md` frontmatter contains: `subject`, `from`, `to`, `date`, `labels`, `label_ids`.
+The `.md` frontmatter contains: `id`, `subject`, `from`, `to`, `date`, `labels`, `label_ids`.
+
+Folder names are **not** assumed to be unique. Older archives named folders with an
+8-char truncation of the message ID, which collides and repeats across labels, so each
+email is keyed on `"<label>/<message_id>"` instead — see "Email Identity" in
+`ARCHITECTURE.md`. Emails are indexed per `.html` file, so a folder containing two
+messages yields two entries rather than silently dropping one.
 
 ## Tech Stack
 

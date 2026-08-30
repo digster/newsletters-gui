@@ -91,8 +91,10 @@ File I/O (reading 13K+ markdown files) happens BEFORE acquiring the database loc
 
 ```sql
 CREATE TABLE emails (
-    id TEXT PRIMARY KEY,           -- 8-char hex folder name
+    id TEXT PRIMARY KEY,           -- composite key: "<label>/<message_id>"
     label TEXT NOT NULL,
+    dir_name TEXT NOT NULL,        -- on-disk email folder name (NOT unique across labels)
+    message_id TEXT NOT NULL,      -- full Gmail message ID when determinable
     subject TEXT NOT NULL DEFAULT '',
     from_addr TEXT NOT NULL DEFAULT '',
     body TEXT NOT NULL DEFAULT '',  -- Truncated plaintext body (≤2000 chars) for FTS
@@ -109,8 +111,50 @@ CREATE VIRTUAL TABLE emails_fts USING fts5(
     tokenize='porter unicode61'
 );
 
+-- One row per physical .html file on disk. This is the structural guard against
+-- the directory-name collision bug described in "Email Identity" below.
+CREATE UNIQUE INDEX idx_emails_identity ON emails(label, dir_name, html_filename);
+
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
 ```
+
+## Email Identity
+
+The single most important invariant in the backend: **`emails.id` is not the folder name.**
+
+Email folders were originally named with an 8-char truncation of the Gmail message ID.
+Those names collide (gmail-ingestor's `LEARNINGS.md` measured 6 colliding groups over
+17,007 live messages — sequential IDs defeat birthday-bound intuition), and the *same*
+name legitimately appears under multiple labels. Keying rows on the folder name meant
+`INSERT OR REPLACE` silently overwrote one newsletter with another, and read/bookmark
+state restored on re-index bled between unrelated emails.
+
+Identity is therefore split across three columns, each with exactly one job:
+
+| Column | Job |
+|---|---|
+| `id` | Primary key + the opaque handle passed to the frontend. Format: `"<label>/<message_id>"` |
+| `dir_name` | On-disk folder, the only thing that can rebuild the path to the HTML file |
+| `message_id` | Full Gmail message ID, resolved front matter `id:` → .html filename stem → folder name |
+
+Consequences worth knowing before touching `scan.rs` or `emails.rs`:
+
+- **The label prefix is load-bearing.** It is what makes two identically-named folders
+  under different labels distinct, and what makes cross-label state bleed structurally
+  impossible rather than a guard someone has to remember.
+- **Never rebuild a file path from `id`.** `get_email_html` joins `label` + `dir_name` +
+  `html_filename` from their own columns.
+- **The unit of indexing is one `.html` file, not one folder.** A colliding pair of
+  messages can share a folder; each body is indexed separately rather than picking a
+  winner (which previously dropped one email entirely).
+- **Directory traversal is fully sorted** — labels, folders, and files — so scan output
+  is identical across machines and repeated runs. `read_dir` order is not stable.
+- Folders with no `.html` at all (400 in the current corpus — plain-text-only emails
+  with just `.txt` + `.md`) are skipped, as they always have been.
+
+Legacy databases are migrated in place on open (`db.rs::migrate`): old rows get
+`dir_name = id`, then `id = label || '/' || id`, so existing bookmarks survive the
+upgrade. The rewrite is idempotent.
 
 ## Frontend Communication
 
