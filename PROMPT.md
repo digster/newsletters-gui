@@ -38,3 +38,9 @@ ID), make `.html` selection deterministic and handle folders containing more tha
 `.html` instead of silently discarding, ensure the `existing_state` restore cannot bleed
 across labels, and add a regression test covering two folders that share a name under
 different labels. Verify the app still builds and scans correctly.
+
+## 2026-08-29: Index Plain-Text-Only Newsletters
+
+Work on the finding from the previous change: 400 emails ship no HTML part (only `.txt` +
+`.md`) and were skipped by the scanner entirely, making them invisible in the app. Index
+them, without double-indexing the `.txt` alternative that sits beside nearly every `.html`.

@@ -99,7 +99,9 @@ CREATE TABLE emails (
     from_addr TEXT NOT NULL DEFAULT '',
     body TEXT NOT NULL DEFAULT '',  -- Truncated plaintext body (≤2000 chars) for FTS
     date TEXT,
-    html_filename TEXT NOT NULL,
+    body_filename TEXT NOT NULL,   -- .html, or .txt for text-only newsletters
+    body_format TEXT NOT NULL,     -- 'html' | 'text'
+
     md_filename TEXT,
     is_read INTEGER NOT NULL DEFAULT 0,
     is_bookmarked INTEGER NOT NULL DEFAULT 0
@@ -111,9 +113,9 @@ CREATE VIRTUAL TABLE emails_fts USING fts5(
     tokenize='porter unicode61'
 );
 
--- One row per physical .html file on disk. This is the structural guard against
+-- One row per physical body file on disk. This is the structural guard against
 -- the directory-name collision bug described in "Email Identity" below.
-CREATE UNIQUE INDEX idx_emails_identity ON emails(label, dir_name, html_filename);
+CREATE UNIQUE INDEX idx_emails_identity ON emails(label, dir_name, body_filename);
 
 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
 ```
@@ -134,8 +136,8 @@ Identity is therefore split across three columns, each with exactly one job:
 | Column | Job |
 |---|---|
 | `id` | Primary key + the opaque handle passed to the frontend. Format: `"<label>/<message_id>"` |
-| `dir_name` | On-disk folder, the only thing that can rebuild the path to the HTML file |
-| `message_id` | Full Gmail message ID, resolved front matter `id:` → .html filename stem → folder name |
+| `dir_name` | On-disk folder, the only thing that can rebuild the path to the body file |
+| `message_id` | Full Gmail message ID, resolved front matter `id:` → body filename stem → folder name |
 
 Consequences worth knowing before touching `scan.rs` or `emails.rs`:
 
@@ -144,13 +146,31 @@ Consequences worth knowing before touching `scan.rs` or `emails.rs`:
   impossible rather than a guard someone has to remember.
 - **Never rebuild a file path from `id`.** `get_email_html` joins `label` + `dir_name` +
   `html_filename` from their own columns.
-- **The unit of indexing is one `.html` file, not one folder.** A colliding pair of
+- **The unit of indexing is one body file, not one folder.** A colliding pair of
   messages can share a folder; each body is indexed separately rather than picking a
   winner (which previously dropped one email entirely).
 - **Directory traversal is fully sorted** — labels, folders, and files — so scan output
   is identical across machines and repeated runs. `read_dir` order is not stable.
-- Folders with no `.html` at all (400 in the current corpus — plain-text-only emails
-  with just `.txt` + `.md`) are skipped, as they always have been.
+- Only folders with **no body file at all** are skipped.
+
+### Which files become bodies
+
+Every `.html` is a body. A `.txt` is a body only when the *message* it names has no HTML
+body — decided on resolved `message_id`, not on filenames:
+
+- **Folder has no `.html`** → every `.txt` is a body. Some newsletters ship no HTML part
+  (400 emails under `Quincy` in the current corpus). These were previously skipped
+  outright and were invisible in the app.
+- **Folder has `.html`** → a `.txt` is promoted only if its stem is a message ID that no
+  HTML body resolved to. Nearly every `.txt` is just the plain-text alternative of the
+  `.html` beside it (verified: zero exceptions across 16,606 folders), so promoting them
+  unconditionally would double every email in the archive. The narrow rule exists for a
+  colliding pair where one member arrived without an HTML part.
+
+`get_email_html` wraps a `text` body in a minimal HTML document (escaped, inside a
+`<pre>`) before it reaches the viewer, because the result goes straight into an iframe
+`srcdoc`. The wrapper sets no colours — the viewer injects `color-scheme`, which makes the
+UA's default text colour follow the theme on its own.
 
 Legacy databases are migrated in place on open (`db.rs::migrate`): old rows get
 `dir_name = id`, then `id = label || '/' || id`, so existing bookmarks survive the

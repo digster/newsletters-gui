@@ -17,12 +17,31 @@ pub struct IndexProgress {
     pub phase: String, // "scanning" | "indexing" | "done"
 }
 
-/// One indexable email — that is, **one .html body file**, not one directory.
+/// How an email body should be rendered in the viewer
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BodyFormat {
+    /// A `.html` body, rendered as-is in the iframe
+    Html,
+    /// A `.txt` body from a newsletter that ships no HTML part, wrapped for display
+    Text,
+}
+
+impl BodyFormat {
+    /// Value stored in `emails.body_format`
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BodyFormat::Html => "html",
+            BodyFormat::Text => "text",
+        }
+    }
+}
+
+/// One indexable email — that is, **one body file**, not one directory.
 ///
 /// A directory usually holds a single email, but historically a pair of messages whose
 /// truncated IDs collided were written into the same directory. Treating the directory
 /// as the unit silently published one message's body under the other's headline and
-/// dropped the loser entirely, so the unit here is the HTML file.
+/// dropped the loser entirely, so the unit here is the body file.
 #[derive(Debug, Clone)]
 pub struct ParsedEmail {
     /// Primary key: `"<label>/<message_id>"`. Label-scoped by construction, so two
@@ -37,7 +56,9 @@ pub struct ParsedEmail {
     pub subject: String,
     pub from_addr: String,
     pub date: Option<String>,
-    pub html_filename: String,
+    /// File rendered in the viewer: a `.html`, or a `.txt` for text-only newsletters
+    pub body_filename: String,
+    pub body_format: BodyFormat,
     pub md_filename: String,
     pub body_text: String,
 }
@@ -45,7 +66,7 @@ pub struct ParsedEmail {
 impl ParsedEmail {
     /// The three columns that together identify one physical email on disk
     fn location(&self) -> (String, String, String) {
-        (self.label.clone(), self.dir_name.clone(), self.html_filename.clone())
+        (self.label.clone(), self.dir_name.clone(), self.body_filename.clone())
     }
 }
 
@@ -71,7 +92,7 @@ struct MdMeta {
 pub struct ExistingState {
     /// Primary lookup, by composite uid
     by_uid: HashMap<String, (bool, bool)>,
-    /// Fallback lookup by (label, dir_name, html_filename), so state survives a change in
+    /// Fallback lookup by (label, dir_name, body_filename), so state survives a change in
     /// how the uid is derived — e.g. front matter gaining an `id:` field promotes a uid
     /// from `Label/<dir>` to `Label/<full_message_id>` while the files stay put.
     by_location: HashMap<(String, String, String), (bool, bool)>,
@@ -82,7 +103,7 @@ impl ExistingState {
     pub fn load(conn: &Connection) -> Result<Self, String> {
         let mut state = ExistingState::default();
         let mut stmt = conn
-            .prepare("SELECT id, label, dir_name, html_filename, is_read, is_bookmarked FROM emails")
+            .prepare("SELECT id, label, dir_name, body_filename, is_read, is_bookmarked FROM emails")
             .map_err(|e| e.to_string())?;
         let rows = stmt
             .query_map([], |row| {
@@ -97,11 +118,11 @@ impl ExistingState {
             })
             .map_err(|e| e.to_string())?;
 
-        for (uid, label, dir_name, html_filename, is_read, is_bookmarked) in rows.flatten() {
+        for (uid, label, dir_name, body_filename, is_read, is_bookmarked) in rows.flatten() {
             state.by_uid.insert(uid, (is_read, is_bookmarked));
             state
                 .by_location
-                .insert((label, dir_name, html_filename), (is_read, is_bookmarked));
+                .insert((label, dir_name, body_filename), (is_read, is_bookmarked));
         }
         Ok(state)
     }
@@ -127,10 +148,15 @@ pub fn make_uid(label: &str, message_id: &str) -> String {
 
 /// Whether a string looks like a Gmail message ID (hex, at least the legacy 8 chars).
 ///
-/// Used to decide whether an .html filename stem is meaningful identity or just a
+/// Used to decide whether a body filename stem is meaningful identity or just a
 /// generic name like `email.html`.
 fn looks_like_message_id(s: &str) -> bool {
     s.len() >= 8 && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// File name minus its extension
+fn stem_of(filename: &str) -> &str {
+    filename.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(filename)
 }
 
 /// Walk the newsletters tree and parse every email found, without touching the database.
@@ -185,7 +211,7 @@ pub fn scan_newsletters(base: &Path) -> Result<Vec<ParsedEmail>, String> {
     Ok(emails)
 }
 
-/// Parse a single email directory, emitting one `ParsedEmail` per .html file it contains.
+/// Parse a single email directory, emitting one `ParsedEmail` per body file it contains.
 fn scan_email_dir(
     label: &str,
     dir_name: &str,
@@ -199,21 +225,25 @@ fn scan_email_dir(
     };
 
     let mut html_files: Vec<String> = Vec::new();
+    let mut txt_files: Vec<String> = Vec::new();
     let mut md_files: Vec<String> = Vec::new();
     for entry in entries.filter_map(|e| e.ok()) {
         let name = entry.file_name().to_string_lossy().to_string();
         let lower = name.to_ascii_lowercase();
         if lower.ends_with(".html") {
             html_files.push(name);
+        } else if lower.ends_with(".txt") {
+            txt_files.push(name);
         } else if lower.ends_with(".md") {
             md_files.push(name);
         }
     }
     // Deterministic selection: never depend on filesystem enumeration order.
     html_files.sort();
+    txt_files.sort();
     md_files.sort();
 
-    if html_files.is_empty() {
+    if html_files.is_empty() && txt_files.is_empty() {
         return; // Nothing renderable here
     }
     if html_files.len() > 1 {
@@ -232,65 +262,81 @@ fn scan_email_dir(
         .map(|name| parse_md(dir_path.join(name), name, label, dir_name))
         .collect();
 
-    let single_pairing = html_files.len() == 1 && mds.len() == 1;
+    // Pass 1 — every .html is a body.
+    let mut bodies: Vec<ResolvedBody> = Vec::new();
+    let html_pairing = html_files.len() == 1 && mds.len() == 1;
+    for filename in &html_files {
+        let (md, message_id) = resolve_body(
+            filename, &mds, html_pairing, dir_name, html_files.len(), label,
+        );
+        bodies.push(ResolvedBody {
+            filename: filename.clone(),
+            format: BodyFormat::Html,
+            md,
+            message_id,
+        });
+    }
 
-    for html_filename in &html_files {
-        let stem = html_filename
-            .rsplit_once('.')
-            .map(|(stem, _)| stem)
-            .unwrap_or(html_filename.as_str());
-        let stem_is_id = looks_like_message_id(stem);
+    // Pass 2 — promote .txt files for messages that have no HTML body.
+    //
+    // Nearly every .txt is just the plain-text alternative of an .html sitting beside it
+    // (verified across the whole archive), so indexing them unconditionally would double
+    // every email. A .txt earns its own row only when the *message* it names isn't already
+    // covered: always when the directory has no HTML at all — some newsletters ship no
+    // HTML part, which previously made them invisible — and otherwise only when its stem
+    // is a message ID that no HTML body resolved to, which is the shape a colliding pair
+    // would take if one member arrived without HTML.
+    let covered: HashSet<String> = bodies
+        .iter()
+        .flat_map(|b| [stem_of(&b.filename).to_string(), b.message_id.clone()])
+        .collect();
+    let text_candidates: Vec<&String> = txt_files
+        .iter()
+        .filter(|name| {
+            let stem = stem_of(name);
+            if html_files.is_empty() {
+                true
+            } else if looks_like_message_id(stem) && !covered.contains(stem) {
+                info!(
+                    "{}/{}: {} names a message with no HTML body, indexing as plain text",
+                    label, dir_name, name
+                );
+                true
+            } else {
+                false
+            }
+        })
+        .collect();
 
-        // Match a body to its metadata, most-specific rule first:
-        //   1. front matter `id:` equals the .html stem — exact, and the only rule that
-        //      can safely disambiguate two messages sharing a directory
-        //   2. the .md filename embeds that ID (`<slug>_<message_id>.md`), only trusted
-        //      when the stem actually looks like an ID
-        //   3. one body + one sidecar in the directory — unambiguous by elimination,
-        //      and how legacy `email.html` layouts pair up
-        let md = mds
-            .iter()
-            .find(|m| m.fm_id.as_deref() == Some(stem))
-            .or_else(|| {
-                if stem_is_id {
-                    mds.iter().find(|m| m.filename.contains(stem))
-                } else {
-                    None
-                }
-            })
-            .or_else(|| if single_pairing { mds.first() } else { None });
+    let text_pairing = html_files.is_empty() && text_candidates.len() == 1 && mds.len() == 1;
+    let text_count = text_candidates.len();
+    for filename in text_candidates {
+        let (md, message_id) = resolve_body(
+            filename, &mds, text_pairing, dir_name, text_count, label,
+        );
+        bodies.push(ResolvedBody {
+            filename: filename.clone(),
+            format: BodyFormat::Text,
+            md,
+            message_id,
+        });
+    }
 
-        if md.is_none() {
-            warn!(
-                "{}/{}: no .md metadata matched {} — indexing body without metadata",
-                label, dir_name, html_filename
-            );
-        }
+    // Pass 3 — assign keys and emit.
+    for body in bodies {
+        let md = body.md.map(|i| &mds[i]);
 
-        // Identity, best available source first. Every fallback is unique within a label:
-        // directory names are unique within a label, and file names within a directory.
-        let message_id = md
-            .and_then(|m| m.fm_id.clone())
-            .or_else(|| stem_is_id.then(|| stem.to_string()))
-            .unwrap_or_else(|| {
-                if html_files.len() == 1 {
-                    dir_name.to_string()
-                } else {
-                    format!("{}-{}", dir_name, stem)
-                }
-            });
-
-        let mut uid = make_uid(label, &message_id);
+        let mut uid = make_uid(label, &body.message_id);
         if !seen_uids.insert(uid.clone()) {
             // Two emails derived the same key. Fall back to the physical location, which
             // the filesystem guarantees is unique, so neither email is lost.
-            let fallback = format!("{}/{}#{}", label, dir_name, html_filename);
+            let fallback = format!("{}/{}#{}", label, dir_name, body.filename);
             warn!(
                 "Duplicate email key {:?} ({}/{}); falling back to {:?}",
                 uid, label, dir_name, fallback
             );
             if !seen_uids.insert(fallback.clone()) {
-                warn!("Skipping {}/{}/{}: key still not unique", label, dir_name, html_filename);
+                warn!("Skipping {}/{}/{}: key still not unique", label, dir_name, body.filename);
                 continue;
             }
             uid = fallback;
@@ -298,17 +344,85 @@ fn scan_email_dir(
 
         out.push(ParsedEmail {
             uid,
-            message_id,
+            message_id: body.message_id,
             label: label.to_string(),
             dir_name: dir_name.to_string(),
             subject: md.map(|m| m.subject.clone()).unwrap_or_default(),
             from_addr: md.map(|m| m.from_addr.clone()).unwrap_or_default(),
             date: md.and_then(|m| m.date.clone()),
-            html_filename: html_filename.clone(),
+            body_filename: body.filename,
+            body_format: body.format,
             md_filename: md.map(|m| m.path.clone()).unwrap_or_default(),
             body_text: md.map(|m| m.body_text.clone()).unwrap_or_default(),
         });
     }
+}
+
+/// A body file matched to its metadata, before a key is assigned
+struct ResolvedBody {
+    filename: String,
+    format: BodyFormat,
+    /// Index into the directory's parsed .md files
+    md: Option<usize>,
+    message_id: String,
+}
+
+/// Match one body file to its .md sidecar and work out the message ID it belongs to.
+///
+/// `single_pairing` says whether this body is the only one of its kind next to exactly one
+/// sidecar; `siblings` is how many bodies of its kind the directory holds, which decides
+/// the shape of the last-resort key.
+fn resolve_body(
+    filename: &str,
+    mds: &[MdMeta],
+    single_pairing: bool,
+    dir_name: &str,
+    siblings: usize,
+    label: &str,
+) -> (Option<usize>, String) {
+    let stem = stem_of(filename);
+    let stem_is_id = looks_like_message_id(stem);
+
+    // Match a body to its metadata, most-specific rule first:
+    //   1. front matter `id:` equals the body's stem — exact, and the only rule that
+    //      can safely disambiguate two messages sharing a directory
+    //   2. the .md filename embeds that ID (`<slug>_<message_id>.md`), only trusted
+    //      when the stem actually looks like an ID
+    //   3. one body + one sidecar in the directory — unambiguous by elimination,
+    //      and how legacy `email.html` layouts pair up
+    let md = mds
+        .iter()
+        .position(|m| m.fm_id.as_deref() == Some(stem))
+        .or_else(|| {
+            if stem_is_id {
+                mds.iter().position(|m| m.filename.contains(stem))
+            } else {
+                None
+            }
+        })
+        .or_else(|| if single_pairing { Some(0) } else { None });
+
+    if md.is_none() {
+        warn!(
+            "{}/{}: no .md metadata matched {} — indexing body without metadata",
+            label, dir_name, filename
+        );
+    }
+
+    // Identity, best available source first. Every fallback is unique within a label:
+    // directory names are unique within a label, and file names within a directory.
+    let message_id = md
+        .and_then(|i| mds[i].fm_id.clone())
+        .or_else(|| stem_is_id.then(|| stem.to_string()))
+        .unwrap_or_else(|| {
+            if siblings == 1 {
+                dir_name.to_string()
+            } else {
+                format!("{}-{}", dir_name, stem)
+            }
+        });
+
+    (md, message_id)
 }
 
 /// Read and parse one .md sidecar. Parse failures degrade to empty metadata (logged)
@@ -377,18 +491,18 @@ pub fn insert_chunk(
         let (is_read, is_bookmarked) = existing.lookup(email);
 
         let result = conn.execute(
-            "INSERT INTO emails (id, label, dir_name, message_id, subject, from_addr, body, date, html_filename, md_filename, is_read, is_bookmarked)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "INSERT INTO emails (id, label, dir_name, message_id, subject, from_addr, body, date, body_filename, body_format, md_filename, is_read, is_bookmarked)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 email.uid, email.label, email.dir_name, email.message_id,
                 email.subject, email.from_addr, email.body_text, email.date,
-                email.html_filename, email.md_filename,
+                email.body_filename, email.body_format.as_str(), email.md_filename,
                 is_read as i32, is_bookmarked as i32,
             ],
         );
 
         if let Err(e) = result {
-            warn!("Skipping {} ({}): {}", email.uid, email.html_filename, e);
+            warn!("Skipping {} ({}): {}", email.uid, email.body_filename, e);
             continue;
         }
 
@@ -742,8 +856,8 @@ mod tests {
         let second = emails.iter().find(|e| e.message_id == "1786999abc9d0e1f").unwrap();
         assert_eq!(first.subject, "First Subject");
         assert_eq!(second.subject, "Second Subject");
-        assert_eq!(first.html_filename, "1786999a3f2b1c4d.html");
-        assert_eq!(second.html_filename, "1786999abc9d0e1f.html");
+        assert_eq!(first.body_filename, "1786999a3f2b1c4d.html");
+        assert_eq!(second.body_filename, "1786999abc9d0e1f.html");
 
         let conn = test_conn();
         assert_eq!(insert_chunk(&conn, &emails, &ExistingState::default()).unwrap(), 2);
@@ -762,7 +876,7 @@ mod tests {
         let first_pass = scan_newsletters(tree.path()).unwrap();
         let second_pass = scan_newsletters(tree.path()).unwrap();
 
-        let names: Vec<&str> = first_pass.iter().map(|e| e.html_filename.as_str()).collect();
+        let names: Vec<&str> = first_pass.iter().map(|e| e.body_filename.as_str()).collect();
         assert_eq!(names, vec!["a.html", "b.html", "c.html"], "files must be sorted");
 
         let uids: Vec<&str> = first_pass.iter().map(|e| e.uid.as_str()).collect();
@@ -810,7 +924,7 @@ mod tests {
 
     /// With no front matter at all, the .html filename supplies the message ID.
     #[test]
-    fn uid_falls_back_to_html_filename_stem() {
+    fn uid_falls_back_to_body_filename_stem() {
         let tree = TempTree::new("stem-id");
         tree.email_dir("Alpha", "1786999a", &[
             ("1786999a3f2b1c4d.html", "<p>body</p>".to_string()),
@@ -839,8 +953,9 @@ mod tests {
     }
 
     #[test]
-    fn directory_without_html_is_skipped() {
-        let tree = TempTree::new("no-html");
+    fn directory_without_any_body_is_skipped() {
+        let tree = TempTree::new("no-body");
+        // Metadata with no body file at all — nothing to render.
         tree.email_dir("Alpha", "empty", &[("post.md", md_without_id("Orphan"))]);
         tree.email_dir("Alpha", "real", &[
             ("email.html", "<p>body</p>".to_string()),
@@ -850,6 +965,121 @@ mod tests {
         let emails = scan_newsletters(tree.path()).unwrap();
         assert_eq!(emails.len(), 1);
         assert_eq!(emails[0].dir_name, "real");
+    }
+
+    // --- Plain-text newsletters --------------------------------------------------
+
+    /// Some newsletters ship no HTML part. Those directories hold only a .txt and a .md,
+    /// and used to be skipped entirely — 400 emails invisible in the live archive.
+    #[test]
+    fn text_only_email_is_indexed() {
+        let tree = TempTree::new("text-only");
+        tree.email_dir("Quincy", "198f3e01cfede00e", &[
+            ("198f3e01cfede00e.txt", "Plain text newsletter body.".to_string()),
+            ("learn-devops_198f3e01cfede00e.md", md_with_id("198f3e01cfede00e", "Learn DevOps")),
+        ]);
+
+        let emails = scan_newsletters(tree.path()).unwrap();
+        assert_eq!(emails.len(), 1, "a text-only newsletter is still an email");
+        assert_eq!(emails[0].body_format, BodyFormat::Text);
+        assert_eq!(emails[0].body_filename, "198f3e01cfede00e.txt");
+        assert_eq!(emails[0].subject, "Learn DevOps");
+        assert_eq!(emails[0].uid, "Quincy/198f3e01cfede00e");
+        assert!(!emails[0].body_text.is_empty(), "body must still be indexed for search");
+
+        let conn = test_conn();
+        assert_eq!(insert_chunk(&conn, &emails, &ExistingState::default()).unwrap(), 1);
+        let format: String = conn.query_row(
+            "SELECT body_format FROM emails", [], |r| r.get(0)).unwrap();
+        assert_eq!(format, "text");
+    }
+
+    /// The common case: a .txt sitting next to an .html is the *same* message's plain-text
+    /// alternative. Indexing it would double every email in the archive.
+    #[test]
+    fn text_alternative_beside_html_is_not_double_indexed() {
+        let tree = TempTree::new("txt-alternative");
+        tree.email_dir("Alpha", "19aa81c5f42e4d56", &[
+            ("19aa81c5f42e4d56.html", "<p>html body</p>".to_string()),
+            ("19aa81c5f42e4d56.txt", "same body as plain text".to_string()),
+            ("post_19aa81c5f42e4d56.md", md_with_id("19aa81c5f42e4d56", "Subject")),
+        ]);
+        // Legacy generic naming, same situation.
+        tree.email_dir("Alpha", "1786999a", &[
+            ("email.html", "<p>html body</p>".to_string()),
+            ("email.txt", "same body as plain text".to_string()),
+            ("post.md", md_without_id("Legacy Subject")),
+        ]);
+
+        let emails = scan_newsletters(tree.path()).unwrap();
+        assert_eq!(emails.len(), 2, "each directory holds one email, not two");
+        assert!(emails.iter().all(|e| e.body_format == BodyFormat::Html));
+    }
+
+    /// A colliding pair where only one member has an HTML part: the other's .txt names a
+    /// message no HTML body covers, so it must be indexed rather than dropped.
+    #[test]
+    fn text_body_for_message_without_html_is_promoted() {
+        let tree = TempTree::new("txt-uncovered");
+        tree.email_dir("Alpha", "1786999a", &[
+            ("1786999a3f2b1c4d.html", "<p>first, with html</p>".to_string()),
+            ("1786999a3f2b1c4d.txt", "first, as text".to_string()),
+            ("1786999abc9d0e1f.txt", "second, text only".to_string()),
+            ("first_1786999a3f2b1c4d.md", md_with_id("1786999a3f2b1c4d", "First Subject")),
+            ("second_1786999abc9d0e1f.md", md_with_id("1786999abc9d0e1f", "Second Subject")),
+        ]);
+
+        let emails = scan_newsletters(tree.path()).unwrap();
+        assert_eq!(emails.len(), 2, "the HTML-less message must not be dropped");
+
+        let first = emails.iter().find(|e| e.message_id == "1786999a3f2b1c4d").unwrap();
+        let second = emails.iter().find(|e| e.message_id == "1786999abc9d0e1f").unwrap();
+        assert_eq!(first.body_format, BodyFormat::Html, "prefer HTML when the message has it");
+        assert_eq!(first.body_filename, "1786999a3f2b1c4d.html");
+        assert_eq!(second.body_format, BodyFormat::Text);
+        assert_eq!(second.subject, "Second Subject");
+
+        let conn = test_conn();
+        assert_eq!(insert_chunk(&conn, &emails, &ExistingState::default()).unwrap(), 2);
+    }
+
+    /// The same message covered by an .html whose stem is generic: the .txt is named by
+    /// the real message ID, but front matter proves they are one message.
+    #[test]
+    fn text_matching_the_html_message_id_is_not_promoted() {
+        let tree = TempTree::new("txt-covered-by-fm");
+        tree.email_dir("Alpha", "1786999a", &[
+            ("email.html", "<p>body</p>".to_string()),
+            ("1786999a3f2b1c4d.txt", "same body as text".to_string()),
+            ("post.md", md_with_id("1786999a3f2b1c4d", "Subject")),
+        ]);
+
+        let emails = scan_newsletters(tree.path()).unwrap();
+        assert_eq!(emails.len(), 1, "front matter identifies both files as one message");
+        assert_eq!(emails[0].body_format, BodyFormat::Html);
+    }
+
+    /// Text-only emails keep their state across a re-index like any other row.
+    #[test]
+    fn text_only_email_state_survives_reindex() {
+        let tree = TempTree::new("text-state");
+        tree.email_dir("Quincy", "198f3e01cfede00e", &[
+            ("198f3e01cfede00e.txt", "Plain text.".to_string()),
+            ("post_198f3e01cfede00e.md", md_with_id("198f3e01cfede00e", "Subject")),
+        ]);
+        let emails = scan_newsletters(tree.path()).unwrap();
+
+        let conn = test_conn();
+        insert_chunk(&conn, &emails, &ExistingState::default()).unwrap();
+        conn.execute("UPDATE emails SET is_bookmarked = 1", []).unwrap();
+
+        let state = ExistingState::load(&conn).unwrap();
+        db::reset_index_tables(&conn).unwrap();
+        insert_chunk(&conn, &emails, &state).unwrap();
+
+        let bookmarked: bool = conn.query_row(
+            "SELECT is_bookmarked FROM emails", [], |r| r.get(0)).unwrap();
+        assert!(bookmarked, "bookmark on a text-only email must survive re-indexing");
     }
 
     #[test]

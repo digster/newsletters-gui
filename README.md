@@ -10,7 +10,8 @@ A portable Tauri desktop app for browsing ~14,000 email newsletters with full-te
 - **Keyboard navigation**: `j`/`k` to navigate emails, `/` or `Cmd+K` for search, `Escape` to close
 - **Dark mode**: Automatic via `prefers-color-scheme`
 - **No build step**: Vanilla JS frontend, no bundler required
-- **Fast indexing**: ~14K emails indexed in <2 seconds (release mode)
+- **Fast indexing**: ~17K emails indexed in <2 seconds (release mode)
+- **Plain-text emails**: newsletters with no HTML part render as preformatted text
 
 ## Prerequisites
 
@@ -52,10 +53,13 @@ newsletters/
     {message-id}/              # Individual email folders (full 16-hex Gmail message ID)
       {message-id}.html        # Full HTML email (displayed in iframe)
       {slug}_{message-id}.md   # Markdown with YAML frontmatter (indexed)
-      {message-id}.txt         # Plain text (optional)
+      {message-id}.txt         # Plain text alternative (or the only body, see below)
 ```
 
 The `.md` frontmatter contains: `id`, `subject`, `from`, `to`, `date`, `labels`, `label_ids`.
+
+Newsletters that ship no HTML part are folders with only a `.txt` and `.md` — those are
+indexed too, and rendered as preformatted text in the viewer.
 
 Folder names are **not** assumed to be unique. Older archives named folders with an
 8-char truncation of the message ID, which collides and repeats across labels, so each

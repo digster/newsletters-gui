@@ -140,10 +140,10 @@ pub fn get_email_html(
     // The path components come from dedicated columns, never from the id itself: the id
     // is a label-scoped composite key ("<label>/<message_id>"), which is deliberately
     // decoupled from what the directory happens to be called on disk.
-    let (label, dir_name, html_filename): (String, String, String) = conn.query_row(
-        "SELECT label, dir_name, html_filename FROM emails WHERE id = ?1",
+    let (label, dir_name, body_filename, body_format): (String, String, String, String) = conn.query_row(
+        "SELECT label, dir_name, body_filename, body_format FROM emails WHERE id = ?1",
         params![email_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     ).map_err(|e| format!("Email not found: {}", e))?;
 
     let newsletters_path = {
@@ -153,13 +153,54 @@ pub fn get_email_html(
             .ok_or("No newsletters path configured")?
     };
 
-    let html_path = Path::new(&newsletters_path)
+    let body_path = Path::new(&newsletters_path)
         .join(&label)
         .join(&dir_name)
-        .join(&html_filename);
+        .join(&body_filename);
 
-    fs::read_to_string(&html_path)
-        .map_err(|e| format!("Failed to read HTML file at {:?}: {}", html_path, e))
+    let content = fs::read_to_string(&body_path)
+        .map_err(|e| format!("Failed to read email body at {:?}: {}", body_path, e))?;
+
+    // Plain-text newsletters are wrapped here rather than in the frontend: the result goes
+    // straight into an iframe `srcdoc`, so escaping has to happen before the string leaves
+    // Rust — handing raw text to the viewer would make it parse as markup.
+    Ok(match body_format.as_str() {
+        "text" => render_text_body(&content),
+        _ => content,
+    })
+}
+
+/// Wrap a plain-text email body in a minimal HTML document for the viewer iframe.
+///
+/// No colours are set: the viewer injects `color-scheme` into the document, which makes
+/// the UA's default text colour follow the active theme on its own. Only layout is
+/// specified here, so light and dark both stay readable.
+fn render_text_body(text: &str) -> String {
+    format!(
+        "<!DOCTYPE html>\n<html><head><meta charset=\"utf-8\"><style>\n\
+         body {{ margin: 0; padding: 32px 40px; }}\n\
+         pre.plaintext {{\n\
+         margin: 0; max-width: 78ch;\n\
+         font-family: ui-monospace, SFMono-Regular, \"SF Mono\", Menlo, Consolas, monospace;\n\
+         font-size: 13px; line-height: 1.65;\n\
+         white-space: pre-wrap; overflow-wrap: anywhere;\n\
+         }}\n</style></head><body><pre class=\"plaintext\">{}</pre></body></html>",
+        escape_html(text)
+    )
+}
+
+/// Escape text for interpolation into an HTML text node
+fn escape_html(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// Get a single email's details
@@ -198,4 +239,35 @@ pub fn set_newsletters_path(
     path: String,
 ) -> Result<(), String> {
     db.set_setting("newsletters_path", &path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_bodies_are_escaped_not_rendered_as_markup() {
+        // A plain-text newsletter that happens to contain angle brackets must not be able
+        // to inject markup or script into the viewer iframe.
+        let html = render_text_body("Reply to <script>alert(1)</script> & co.");
+        assert!(html.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(!html.contains("<script>"), "raw script tag leaked into the document");
+        assert!(html.contains("&amp; co."));
+    }
+
+    #[test]
+    fn text_bodies_preserve_layout_and_wrap_in_a_document() {
+        let html = render_text_body("line one\nline two");
+        assert!(html.starts_with("<!DOCTYPE html>"));
+        // The viewer injects its theme <style> before </head>, so the document needs one.
+        assert!(html.contains("</head>"), "theme injection depends on a </head>");
+        assert!(html.contains("white-space: pre-wrap"), "newlines must survive display");
+        assert!(html.contains("line one\nline two"), "body text should be untouched");
+    }
+
+    #[test]
+    fn escape_html_leaves_ordinary_text_alone() {
+        assert_eq!(escape_html("plain text, 100% fine"), "plain text, 100% fine");
+        assert_eq!(escape_html("a & b < c > d"), "a &amp; b &lt; c &gt; d");
+    }
 }

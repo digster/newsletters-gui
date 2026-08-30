@@ -143,30 +143,13 @@ mod tests {
 
     // --- Integration tests for FTS5 search pipeline ---
 
-    /// Create an in-memory SQLite database with emails + FTS5 tables and sample data
+    /// Create an in-memory SQLite database with emails + FTS5 tables and sample data.
+    /// Built from the production schema constants so the tests can't drift from db.rs.
     fn create_test_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
-
-        conn.execute_batch("
-            CREATE TABLE emails (
-                id TEXT PRIMARY KEY,
-                label TEXT NOT NULL,
-                subject TEXT NOT NULL DEFAULT '',
-                from_addr TEXT NOT NULL DEFAULT '',
-                body TEXT NOT NULL DEFAULT '',
-                date TEXT,
-                html_filename TEXT NOT NULL,
-                md_filename TEXT,
-                is_read INTEGER NOT NULL DEFAULT 0,
-                is_bookmarked INTEGER NOT NULL DEFAULT 0
-            );
-
-            CREATE VIRTUAL TABLE emails_fts USING fts5(
-                subject, body, from_addr, label,
-                content='emails', content_rowid='rowid',
-                tokenize='porter unicode61'
-            );
-        ").unwrap();
+        conn.execute_batch(crate::db::EMAILS_TABLE_SQL).unwrap();
+        conn.execute_batch(crate::db::EMAILS_INDEX_SQL).unwrap();
+        conn.execute_batch(crate::db::FTS_TABLE_SQL).unwrap();
 
         // Insert sample emails
         let samples = vec![
@@ -182,8 +165,8 @@ mod tests {
 
         for (id, label, subject, from_addr, body, date, is_read, is_bookmarked) in &samples {
             conn.execute(
-                "INSERT INTO emails (id, label, subject, from_addr, body, date, html_filename, is_read, is_bookmarked)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'email.html', ?7, ?8)",
+                "INSERT INTO emails (id, label, subject, from_addr, body, date, dir_name, message_id, body_filename, is_read, is_bookmarked)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?1, ?1, 'email.html', ?7, ?8)",
                 params![id, label, subject, from_addr, body, date, *is_read as i32, *is_bookmarked as i32],
             ).unwrap();
 

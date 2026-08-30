@@ -17,9 +17,13 @@ use log::{info, warn};
 /// The three identity-ish columns each have exactly one job:
 ///
 /// - `id`          — primary key + the opaque handle handed to the frontend
-/// - `dir_name`    — on-disk directory, used to rebuild the path to the HTML file
-/// - `message_id`  — full Gmail message ID (front matter `id:`, else the .html
+/// - `dir_name`    — on-disk directory, used to rebuild the path to the body file
+/// - `message_id`  — full Gmail message ID (front matter `id:`, else the body
 ///                   filename stem, else the directory name)
+///
+/// `body_filename` is the file rendered in the viewer, and `body_format` says how to
+/// render it: `html` for a `.html` body, `text` for a plain-text-only email (some
+/// newsletters ship no HTML part at all).
 ///
 /// Keep them separate: the moment a single value has to be both "globally unique row
 /// identity" and "whatever the folder is called", the corruption comes back.
@@ -33,7 +37,8 @@ pub const EMAILS_TABLE_SQL: &str = "
         from_addr TEXT NOT NULL DEFAULT '',
         body TEXT NOT NULL DEFAULT '',
         date TEXT,
-        html_filename TEXT NOT NULL,
+        body_filename TEXT NOT NULL,
+        body_format TEXT NOT NULL DEFAULT 'html',
         md_filename TEXT,
         is_read INTEGER NOT NULL DEFAULT 0,
         is_bookmarked INTEGER NOT NULL DEFAULT 0
@@ -43,8 +48,10 @@ pub const EMAILS_TABLE_SQL: &str = "
 /// Indexes for the `emails` table.
 ///
 /// `idx_emails_identity` is the structural guard against the collision bug: one row per
-/// physical HTML file on disk. It must be created *after* the `dir_name` backfill, or
-/// legacy rows (all with `dir_name = ''`) would violate it.
+/// physical body file on disk. It must be created *after* the `dir_name` backfill, or
+/// legacy rows (all with `dir_name = ''`) would violate it. `body_filename` is kept
+/// NOT NULL precisely so this index stays meaningful — SQLite treats NULLs as distinct
+/// in a unique index, so a nullable column would quietly stop enforcing anything.
 pub const EMAILS_INDEX_SQL: &str = "
     CREATE INDEX IF NOT EXISTS idx_emails_label_date
         ON emails(label, date DESC);
@@ -53,7 +60,7 @@ pub const EMAILS_INDEX_SQL: &str = "
         ON emails(is_bookmarked) WHERE is_bookmarked = 1;
 
     CREATE UNIQUE INDEX IF NOT EXISTS idx_emails_identity
-        ON emails(label, dir_name, html_filename);
+        ON emails(label, dir_name, body_filename);
 ";
 
 /// Schema for the FTS5 external-content index.
@@ -145,6 +152,21 @@ impl Database {
             info!("Migrated emails table: label-scoped composite ids (dir_name, message_id)");
         }
 
+        // Migration: html_filename -> body_filename (+ body_format).
+        //
+        // Plain-text-only emails (a .txt and .md, no HTML part) were skipped entirely by
+        // the scanner because the column could only name an .html file — 400 emails in the
+        // current archive were invisible. RENAME COLUMN rewrites the column references in
+        // existing indexes too, so idx_emails_identity follows along. Runs before the index
+        // block below so a fresh index is created on the final column name.
+        if !Self::has_column(&conn, "body_filename") && Self::has_column(&conn, "html_filename") {
+            conn.execute_batch("
+                ALTER TABLE emails RENAME COLUMN html_filename TO body_filename;
+                ALTER TABLE emails ADD COLUMN body_format TEXT NOT NULL DEFAULT 'html';
+            ").map_err(|e| format!("Failed to migrate body columns: {}", e))?;
+            info!("Migrated emails table: html_filename -> body_filename (+ body_format)");
+        }
+
         // Indexes come last: the unique identity index can only hold once dir_name is
         // populated. A pre-existing database that somehow carries duplicates shouldn't
         // block startup — the tables are a rebuildable cache, and the next scan fixes it.
@@ -228,7 +250,7 @@ mod tests {
     fn identity_index_rejects_duplicate_physical_emails() {
         let conn = fresh_conn();
         conn.execute(
-            "INSERT INTO emails (id, label, dir_name, message_id, html_filename)
+            "INSERT INTO emails (id, label, dir_name, message_id, body_filename)
              VALUES ('Alpha/aaa', 'Alpha', '1786999a', 'aaa', 'email.html')",
             [],
         ).unwrap();
@@ -236,7 +258,7 @@ mod tests {
         // Same label + directory + file is the same physical email; a second row for it
         // would mean the index has double-counted one message.
         let err = conn.execute(
-            "INSERT INTO emails (id, label, dir_name, message_id, html_filename)
+            "INSERT INTO emails (id, label, dir_name, message_id, body_filename)
              VALUES ('Alpha/bbb', 'Alpha', '1786999a', 'bbb', 'email.html')",
             [],
         );
@@ -244,7 +266,7 @@ mod tests {
 
         // The same directory name under a *different* label is a different email entirely.
         conn.execute(
-            "INSERT INTO emails (id, label, dir_name, message_id, html_filename)
+            "INSERT INTO emails (id, label, dir_name, message_id, body_filename)
              VALUES ('Beta/bbb', 'Beta', '1786999a', 'bbb', 'email.html')",
             [],
         ).unwrap();
@@ -295,6 +317,13 @@ mod tests {
         assert_eq!(dir_name, "1786999a", "the on-disk directory must still be recoverable");
         assert_eq!(message_id, "1786999a");
         assert!(is_read && is_bookmarked, "user state must survive the migration");
+
+        // html_filename must have been renamed, with the format defaulted for existing rows
+        let (body_filename, body_format): (String, String) = conn.query_row(
+            "SELECT body_filename, body_format FROM emails", [], |r| Ok((r.get(0)?, r.get(1)?)),
+        ).unwrap();
+        assert_eq!(body_filename, "email.html");
+        assert_eq!(body_format, "html", "pre-existing rows are all HTML bodies");
 
         drop(conn);
         drop(db);

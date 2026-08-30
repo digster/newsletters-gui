@@ -57,12 +57,35 @@ keeps a `(label, dir_name, html_filename)` fallback map: it restores state when 
 a uid is derived changes (front matter gaining an `id:` field) while the files stay put.
 Both lookup paths are label-scoped, so neither can bleed.
 
-## 400 emails have no `.html` at all
+## Not every newsletter has an HTML part
 
-Plain-text-only newsletters (`.txt` + `.md`, no HTML body) exist in the corpus and have
-always been skipped by the scanner — `html_filename` is `NOT NULL` and the viewer renders
-HTML into an iframe. This is pre-existing, not a scan regression. Supporting them means a
-nullable `html_filename` plus a text-rendering path in the viewer.
+400 emails (all under `Quincy`) ship only a `.txt` and a `.md`. The scanner skipped them
+because the column was called `html_filename` and could only ever name an `.html` — the
+schema encoded an assumption nobody had checked. They are now indexed as
+`body_format = 'text'`.
+
+The subtle half is deciding *which* `.txt` files count. Almost every `.txt` in the archive
+is the plain-text alternative of the `.html` beside it — indexing those would have doubled
+every email. The rule has to be identity-based, not filename-based: a `.txt` becomes a body
+only when the message it names has no HTML body, resolved through the same `message_id`
+chain as everything else. Filename-based rules ("prefer html, else txt" applied per file)
+either double-count or drop the HTML-less member of a colliding pair.
+
+Measured before choosing the rule: across 16,606 folders with HTML, **zero** had a `.txt`
+whose stem didn't match an `.html`. So the promotion path is a guard against a known bug
+class, not a live case — worth having, but don't mistake it for common.
+
+**Rule:** keep `body_filename` NOT NULL. A nullable column would have been the smaller
+diff, but SQLite treats NULLs as distinct in a unique index, so `idx_emails_identity`
+would have silently stopped enforcing one-row-per-body.
+
+## Escape plain text in Rust, not in the frontend
+
+`get_email_html` output goes straight into an iframe `srcdoc`. A `.txt` body handed over
+raw would be parsed as markup, so it is escaped and wrapped in `<pre>` before it leaves
+Rust. The wrapper sets no colours: the viewer injects `color-scheme` into the document,
+and the UA's default text colour follows it in both themes for free. Setting an explicit
+colour there would have needed a second theme code path.
 
 ## FTS5 external-content tables can't be DELETEd
 
